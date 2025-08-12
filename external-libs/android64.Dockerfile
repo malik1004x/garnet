@@ -1,6 +1,6 @@
 FROM debian:stable
 
-RUN set -x && apt-get update && apt-get install -y unzip automake build-essential curl file pkg-config git python3 python-is-python3 libtool libtinfo5
+RUN set -x && apt-get update && apt-get install -y unzip automake build-essential curl file pkg-config git python3 python-is-python3 libtool libtinfo5 yacc
 
 WORKDIR /opt/android
 ## INSTALL ANDROID SDK
@@ -50,8 +50,7 @@ ARG BOOST_VERSION=1_70_0
 ARG BOOST_VERSION_DOT=1.70.0
 ARG BOOST_HASH=430ae8354789de4fd19ee52f3b1f739e1fba576f0aded0897c3c2bc00fb38778
 RUN set -x \
-    && curl -L -o  boost_${BOOST_VERSION}.tar.bz2 https://boostorg.jfrog.io/artifactory/main/release/${BOOST_VERSION_DOT}/source/boost_${BOOST_VERSION}.tar.bz2 \
-    && echo "${BOOST_HASH}  boost_${BOOST_VERSION}.tar.bz2" | sha256sum -c \
+    && curl -L -o  boost_${BOOST_VERSION}.tar.bz2 https://archives.boost.io/release/${BOOST_VERSION_DOT}/source/boost_${BOOST_VERSION}.tar.bz2 \
     && tar -xvf boost_${BOOST_VERSION}.tar.bz2 \
     && rm -f boost_${BOOST_VERSION}.tar.bz2 \
     && cd boost_${BOOST_VERSION} \
@@ -77,7 +76,12 @@ RUN set -x \
 ## Build BOOST
 RUN set -x \
     && cd boost_${BOOST_VERSION} \
-    && ./b2 --build-type=minimal link=static runtime-link=static --with-chrono --with-date_time --with-filesystem --with-program_options --with-regex --with-serialization --with-system --with-thread --with-locale --build-dir=android --stagedir=android toolset=clang threading=multi threadapi=pthread target-os=android -sICONV_PATH=${PREFIX} install -j${NPROC}
+    && ./b2 --build-type=minimal link=static runtime-link=static \
+       --with-chrono --with-date_time --with-filesystem --with-program_options --with-regex --with-serialization --with-system --with-thread --with-locale \
+       --build-dir=android --stagedir=android \
+       toolset=clang threading=multi threadapi=pthread target-os=android \
+       -sICU=off -sICONV_PATH=${PREFIX} --prefix=${PREFIX} install -j${NPROC}
+
 
 # download, configure and make Zlib
 ENV ZLIB_VERSION 1.3.1
@@ -96,7 +100,7 @@ ARG OPENSSL_VERSION=3.0.5
 ARG OPENSSL_HASH=aa7d8d9bef71ad6525c55ba11e5f4397889ce49c2c9349dcea6d3e4f0b024a7a
 # openssl explicitly demands to be built by a clang that has a "/prebuilt/" somewhere along its path, so use the prebuilt version, but make sure to specify the target android api
 RUN set -x \
-    && curl -O https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz \
+    && curl -OL https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz \
     && echo "${OPENSSL_HASH}  openssl-${OPENSSL_VERSION}.tar.gz" | sha256sum -c \
     && tar -xzf openssl-${OPENSSL_VERSION}.tar.gz \
     && rm openssl-${OPENSSL_VERSION}.tar.gz \
@@ -158,14 +162,22 @@ RUN set -x \
     && make  -j${NPROC} \
     && make install
 
+ENV BOOST_ROOT=${PREFIX}
+ENV BOOST_INCLUDEDIR=${PREFIX}/include
+ENV BOOST_LIBRARYDIR=${PREFIX}/lib
+ENV PKG_CONFIG_PATH=${PREFIX}/lib/pkgconfig:$PKG_CONFIG_PATH
 COPY . /src
 RUN set -x \
     && cd /src \
     && CMAKE_INCLUDE_PATH="${PREFIX}/include" \
        CMAKE_LIBRARY_PATH="${PREFIX}/lib" \
+       BOOST_ROOT=${BOOST_ROOT} \
+       BOOST_INCLUDEDIR=${BOOST_INCLUDEDIR} \
+       BOOST_LIBRARYDIR=${BOOST_LIBRARYDIR} \
        ANDROID_STANDALONE_TOOLCHAIN_PATH=${TOOLCHAIN_DIR} \
        USE_SINGLE_BUILDDIR=1 \
        PATH=${HOST_PATH} make release-static-android-armv8-wallet_api -j${NPROC}
+
 
 RUN set -x \
     && cd /src/build/release \
